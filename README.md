@@ -3,6 +3,15 @@ VMW-OVA-Tool 🛠️📦
 
 A PowerShell script to automate the usage of the VMware OVF Tool, handling installation, credential storage, and dynamic command execution. No need to manually input credentials or install the OVF Tool every time—this script does it all for you! 🎉
 
+Quick Start 🚀
+--------------
+
+To quickly download and run the script on Windows, open PowerShell as Administrator and run the following command:
+
+```powershell
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Paul1404/VMW-OVA-Tool/refs/heads/main/ova-tool.ps1" -OutFile "ova-tool.ps1"; ./ova-tool.ps1
+```
+
 Features ✨
 ----------
 
