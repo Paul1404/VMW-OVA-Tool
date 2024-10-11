@@ -6,13 +6,16 @@
     This script checks if VMware OVF Tool is installed, and if not, downloads and installs it silently.
     It securely stores and retrieves credentials, prompts for the vCenter FQDN, VM path, and destination, and then dynamically crafts and executes the OVF Tool command.
 
-.PARAMETER None
-    No parameters are required to run this script interactively.
+.PARAMETER ClearCredentials
+    If specified, this parameter clears the stored credentials.
+
+.PARAMETER VerboseMode
+    If specified, this parameter provides detailed logs of actions performed by the script.
 
 .NOTES
     Author: Paul
     Date: 2024-10-10
-    Version: 1.1
+    Version: 1.3
     PowerShell Version: 5.1 or higher
     Tested on: Windows 10
 
@@ -20,8 +23,39 @@
     https://github.com/Paul1404/VMW-OVA-Tool
 #>
 
+param (
+    [switch]$ClearCredentials,
+    [switch]$VerboseMode
+)
+
 # Define the OVF Tool path (constant)
 $OvfToolPath = "C:\Program Files\VMware\VMware OVF Tool\ovftool.exe"
+
+# Verbose logging function
+function Log-VerboseMessage {
+    param ($Message)
+    if ($VerboseMode) {
+        Write-Host "[VERBOSE] $Message" -ForegroundColor Cyan
+    }
+}
+
+# Function to clear stored credentials
+function Clear-Credentials {
+    <#
+    .SYNOPSIS
+        Clears the stored credentials.
+    .DESCRIPTION
+        Deletes the stored credentials file securely from the user's profile.
+    #>
+    
+    $CredFile = "$env:USERPROFILE\vmware_creds.xml"
+    if (Test-Path $CredFile) {
+        Remove-Item $CredFile -Force
+        Write-Host "Credentials cleared successfully." -ForegroundColor Green
+    } else {
+        Write-Host "No stored credentials found." -ForegroundColor Yellow
+    }
+}
 
 # Function to check and install OVF Tool if necessary
 function Install-OVFTool {
@@ -42,12 +76,12 @@ function Install-OVFTool {
         
         try {
             # Download the MSI installer
-            Write-Host "Downloading the installer..." -ForegroundColor Yellow
+            Log-VerboseMessage "Downloading the installer..."
             Invoke-WebRequest -Uri $DownloadLink -OutFile $InstallerPath
             Write-Host "Installer downloaded successfully." -ForegroundColor Green
 
             # Silent install the MSI
-            Write-Host "Installing OVF Tool..." -ForegroundColor Yellow
+            Log-VerboseMessage "Installing OVF Tool..."
             Start-Process msiexec.exe -ArgumentList "/i `"$InstallerPath`" /quiet /norestart" -Wait
 
             # Verify the installation
@@ -62,7 +96,7 @@ function Install-OVFTool {
         } finally {
             # Clean up the installer
             if (Test-Path $InstallerPath) {
-                Write-Host "Cleaning up installer file..." -ForegroundColor Yellow
+                Log-VerboseMessage "Cleaning up installer file..."
                 Remove-Item $InstallerPath -Force
             }
         }
@@ -120,6 +154,12 @@ function Get-Credentials {
     }
 }
 
+# Function to encode password for use in URL (handles special characters)
+function Encode-Password {
+    param ($Password)
+    return [System.Web.HttpUtility]::UrlEncode($Password)
+}
+
 # Function to dynamically craft and execute OVF Tool command
 function Invoke-OVFTool {
     <#
@@ -134,22 +174,27 @@ function Invoke-OVFTool {
     $Cred = Get-Credentials
     $Username = $Cred.UserName
     $Password = $Cred.GetNetworkCredential().Password
+    $EncodedPassword = Encode-Password $Password
 
     # Prompt user for vCenter FQDN, VM path, and destination
     $vCenterFQDN = Read-Host "Enter the vCenter FQDN (e.g., vcenter.company.local)"
     $VMPath = Read-Host "Enter the full path to the VM (e.g., hldca-nested/vm/hldca-nested-vca-vms/TRITON)"
     $StoragePath = Read-Host "Enter the local storage path (e.g., C:\Users\pauld\Downloads)"
 
-    # Craft the OVF Tool command
-    $SourceVM = "vi://${Username}:${Password}@$vCenterFQDN/$VMPath"
-    $OvfCommand = "`"$OvfToolPath`" $SourceVM $StoragePath"
+    # Craft the OVF Tool command (with encoded password)
+    $SourceVM = "vi://${Username}:${EncodedPassword}@$vCenterFQDN/$VMPath"
+    $Arguments = "$SourceVM $StoragePath"
 
     Write-Host "Executing OVF Tool with the following command:" -ForegroundColor Yellow
-    Write-Host $OvfCommand
+    Write-Host "`"$OvfToolPath`" $Arguments"
 
     try {
-        # Run the crafted command
-        Invoke-Expression $OvfCommand
+        # Use Start-Process to capture output and errors from the OVF Tool
+        Start-Process -FilePath $OvfToolPath -ArgumentList $Arguments -NoNewWindow -Wait -PassThru | 
+            ForEach-Object {
+                $_.StandardOutput.ReadToEnd()
+                $_.StandardError.ReadToEnd()
+            }
     } catch {
         Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
         exit 1
@@ -157,6 +202,11 @@ function Invoke-OVFTool {
 }
 
 # Main Script Execution
+if ($ClearCredentials) {
+    Clear-Credentials
+    exit 0
+}
+
 try {
     # Step 1: Check and install OVF Tool if necessary
     Install-OVFTool
